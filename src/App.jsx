@@ -199,7 +199,7 @@ function FeedPage({ userId, onWriterClick, onCommentClick }) {
   if (loading) return <div style={s.loading}>Loading…</div>;
 
   return (
-    <div style={{ background: "#faf8f5", minHeight: "100vh" }}>
+    <div style={{ background: "#faf8f5" }}>
       {/* Header */}
       <div style={s.feedHeader}>
         <h1 style={s.feedLogo}>Axiom</h1>
@@ -550,10 +550,26 @@ const s = {
   feedHeader: { position: "fixed", top: 0, left: 0, right: 0, zIndex: 20, padding: "16px 24px 12px", background: "rgba(250,248,245,0.92)", backdropFilter: "blur(8px)", borderBottom: "1px solid #ede9e3" },
   feedLogo: { fontFamily: "'DM Serif Display', serif", fontSize: 26, color: "#2d2d2d" },
   hint: { fontSize: 11, color: "#c0bab2", marginTop: 2 },
-  snapContainer: { height: "calc(100vh - 134px)", marginTop: 64, overflowY: "scroll", scrollSnapType: "y mandatory", WebkitOverflowScrolling: "touch" },
+  snapContainer: {
+    height: "calc(100vh - 134px)",
+    marginTop: 64,
+    overflowY: "scroll",
+    scrollSnapType: "y mandatory",
+    WebkitOverflowScrolling: "touch",
+  },
 
   // Full screen slide
-  slide: { height: "calc(100vh - 134px)", flexShrink: 0, scrollSnapAlign: "start", display: "flex", flexDirection: "column", justifyContent: "center", position: "relative", padding: "40px 32px 40px 32px", borderBottom: "1px solid #ede9e3" },
+  slide: {
+    height: "calc(100vh - 134px)",
+    flexShrink: 0,
+    scrollSnapAlign: "start",
+    display: "flex",
+    flexDirection: "column",
+    justifyContent: "center",
+    position: "relative",
+    padding: "40px 32px",
+    borderBottom: "1px solid #ede9e3",
+  },
   categoryPill: { position: "absolute", top: 24, left: 32, background: "#f0ece6", color: "#a09890", fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", padding: "5px 12px", borderRadius: 20 },
   slideContent: { flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", paddingRight: 56 },
   slideQuote: { fontFamily: "'DM Serif Display', serif", fontSize: 26, color: "#2d2d2d", lineHeight: 1.6, fontStyle: "italic", marginBottom: 24 },
@@ -637,7 +653,6 @@ export default function App() {
         body { background: #faf8f5; }
         input { outline: none; }
         input::placeholder { color: #c0bab2; }
-        html { scroll-behavior: smooth; }
         @keyframes bounce {
           0%, 100% { transform: translateX(-50%) translateY(0); }
           50% { transform: translateX(-50%) translateY(6px); }
