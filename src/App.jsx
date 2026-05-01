@@ -1,26 +1,48 @@
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "./supabase";
 
-// ─── Quote Card ───────────────────────────────────────────────────────────────
+// ─── Full Screen Quote Card ───────────────────────────────────────────────────
 
-function QuoteCard({ quote, liked, likeCount, commentCount, onLike, onWriterClick, onCommentClick }) {
+function QuoteSlide({ quote, liked, likeCount, commentCount, onLike, onWriterClick, onCommentClick }) {
+  const [pressed, setPressed] = useState(false);
+
   return (
-    <div style={s.card}>
-      <p style={s.quoteText}>"{quote.text}"</p>
-      <div style={s.cardFooter}>
-        <button style={s.writerBtn} onClick={() => onWriterClick && onWriterClick(quote.writers)}>
-          <span style={s.dash}>—</span> {quote.writers?.name}
-          {quote.source && <span style={s.source}>, {quote.source}</span>}
+    <div style={s.slide}>
+      {/* Category pill */}
+      {quote.writers?.category && (
+        <div style={s.categoryPill}>{quote.writers.category}</div>
+      )}
+
+      {/* Quote text centred in card */}
+      <div style={s.slideContent}>
+        <p style={s.slideQuote}>"{quote.text}"</p>
+        <button style={s.slideWriter} onClick={() => onWriterClick && onWriterClick(quote.writers)}>
+          — {quote.writers?.name}
+          {quote.source && <span style={s.slideSource}>, {quote.source}</span>}
         </button>
-        <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
-          <button style={{ ...s.iconBtn, color: "#4a3e2a" }} onClick={() => onCommentClick(quote)}>
-            ◎{commentCount > 0 ? ` ${commentCount}` : ""}
+      </div>
+
+      {/* Actions on the right side like Instagram */}
+      <div style={s.slideActions}>
+        <div style={s.actionItem}>
+          <button
+            style={{ ...s.actionBtn, transform: pressed ? "scale(1.3)" : "scale(1)" }}
+            onClick={() => { setPressed(true); setTimeout(() => setPressed(false), 300); onLike(quote.id); }}
+          >
+            <span style={{ fontSize: 28, color: liked ? "#e05555" : "#c8c0b4" }}>{liked ? "♥" : "♡"}</span>
           </button>
-          <button style={{ ...s.iconBtn, color: liked ? "#c8a96e" : "#4a3e2a" }} onClick={() => onLike(quote.id)}>
-            {liked ? "♥" : "♡"}{likeCount > 0 ? ` ${likeCount}` : ""}
+          {likeCount > 0 && <span style={s.actionCount}>{likeCount}</span>}
+        </div>
+        <div style={s.actionItem}>
+          <button style={s.actionBtn} onClick={() => onCommentClick(quote)}>
+            <span style={{ fontSize: 24, color: "#c8c0b4" }}>◎</span>
           </button>
+          {commentCount > 0 && <span style={s.actionCount}>{commentCount}</span>}
         </div>
       </div>
+
+      {/* Scroll hint */}
+      <div style={s.scrollHint}>↓</div>
     </div>
   );
 }
@@ -36,7 +58,7 @@ function WriterCard({ writer, following, onFollow, onClick }) {
         <p style={s.writerMeta}>{writer.category} · {writer.born}–{writer.died || "present"}</p>
       </div>
       <button
-        style={{ ...s.pill, background: following ? "transparent" : "#c8a96e", color: following ? "#c8a96e" : "#13100d", border: "1px solid #c8a96e" }}
+        style={{ ...s.pill, background: following ? "transparent" : "#2d2d2d", color: following ? "#2d2d2d" : "#faf8f5", border: "1.5px solid #2d2d2d" }}
         onClick={() => onFollow(writer.id)}
       >
         {following ? "Following" : "Follow"}
@@ -56,7 +78,7 @@ function BottomNav({ page, setPage }) {
   return (
     <div style={s.nav}>
       {tabs.map(t => (
-        <button key={t.id} style={{ ...s.navBtn, color: page === t.id ? "#c8a96e" : "#4a3e2a" }} onClick={() => setPage(t.id)}>
+        <button key={t.id} style={{ ...s.navBtn, color: page === t.id ? "#2d2d2d" : "#c0bab2" }} onClick={() => setPage(t.id)}>
           <span style={{ fontSize: 22 }}>{t.icon}</span>
           <span style={{ fontSize: 10, letterSpacing: "0.06em" }}>{t.label}</span>
         </button>
@@ -108,7 +130,7 @@ function AuthPage({ onAuth }) {
         <p style={s.authTagline}>Wisdom worth reading.</p>
         <div style={s.toggle}>
           {["login", "signup"].map(m => (
-            <button key={m} style={{ ...s.toggleBtn, background: mode === m ? "#c8a96e" : "transparent", color: mode === m ? "#13100d" : "#6b5e45" }} onClick={() => { setMode(m); setError(""); }}>
+            <button key={m} style={{ ...s.toggleBtn, background: mode === m ? "#2d2d2d" : "transparent", color: mode === m ? "#faf8f5" : "#a09890" }} onClick={() => { setMode(m); setError(""); }}>
               {m === "login" ? "Sign in" : "Create account"}
             </button>
           ))}
@@ -123,132 +145,7 @@ function AuthPage({ onAuth }) {
   );
 }
 
-// ─── Comments Page ────────────────────────────────────────────────────────────
-
-function CommentsPage({ quote, userId, onBack }) {
-  const [comments, setComments] = useState([]);
-  const [text, setText] = useState("");
-  const [replyingTo, setReplyingTo] = useState(null); // { id, username }
-  const [loading, setLoading] = useState(true);
-  const bottomRef = useRef(null);
-
-  useEffect(() => { loadComments(); }, [quote.id]);
-
-  async function loadComments() {
-    setLoading(true);
-    const { data } = await supabase
-      .from("comments")
-      .select("*, profiles(username)")
-      .eq("quote_id", quote.id)
-      .order("created_at", { ascending: true });
-    setComments(data || []);
-    setLoading(false);
-  }
-
-  async function submit() {
-    if (!text.trim()) return;
-    const { data, error } = await supabase
-      .from("comments")
-      .insert({ quote_id: quote.id, user_id: userId, parent_id: replyingTo?.id || null, text: text.trim() })
-      .select("*, profiles(username)");
-    if (!error && data?.[0]) {
-      setComments(prev => [...prev, data[0]]);
-      setText("");
-      setReplyingTo(null);
-      setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
-    }
-  }
-
-  async function deleteComment(commentId) {
-    await supabase.from("comments").delete().eq("id", commentId).eq("user_id", userId);
-    setComments(prev => prev.filter(c => c.id !== commentId));
-  }
-
-  const topLevel = comments.filter(c => !c.parent_id);
-  const getReplies = (parentId) => comments.filter(c => c.parent_id === parentId);
-
-  function timeAgo(dateStr) {
-    const diff = (Date.now() - new Date(dateStr)) / 1000;
-    if (diff < 60) return "just now";
-    if (diff < 3600) return `${Math.floor(diff / 60)}m`;
-    if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
-    return `${Math.floor(diff / 86400)}d`;
-  }
-
-  function CommentItem({ comment, depth }) {
-    const replies = getReplies(comment.id);
-    const isOwn = comment.user_id === userId;
-    return (
-      <div style={{ marginLeft: depth > 0 ? 20 : 0, marginBottom: 8 }}>
-        <div style={{ ...s.commentCard, borderLeft: depth > 0 ? "2px solid #2a2218" : "none", paddingLeft: depth > 0 ? 14 : 0, background: "transparent", border: "none" }}>
-          <div style={s.commentHeader}>
-            <span style={s.commentUser}>@{comment.profiles?.username}</span>
-            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-              <span style={s.commentTime}>{timeAgo(comment.created_at)}</span>
-              {isOwn && (
-                <button style={s.deleteBtn} onClick={() => deleteComment(comment.id)}>×</button>
-              )}
-            </div>
-          </div>
-          <p style={s.commentText}>{comment.text}</p>
-          <button
-            style={{ ...s.replyBtn, color: replyingTo?.id === comment.id ? "#c8a96e" : "#4a3e2a" }}
-            onClick={() => setReplyingTo(replyingTo?.id === comment.id ? null : { id: comment.id, username: comment.profiles?.username })}
-          >
-            {replyingTo?.id === comment.id ? "Cancel" : "Reply"}
-          </button>
-        </div>
-        {replies.map(r => <CommentItem key={r.id} comment={r} depth={depth + 1} />)}
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ ...s.page, paddingBottom: 130 }}>
-      {/* Header with quote */}
-      <div style={s.header}>
-        <button style={s.backBtn} onClick={onBack}>← Back</button>
-        <div style={{ ...s.card, marginBottom: 0 }}>
-          <p style={{ ...s.quoteText, fontSize: 16, marginBottom: 10 }}>"{quote.text}"</p>
-          <p style={{ color: "#c8a96e", fontSize: 13 }}>— {quote.writers?.name}</p>
-        </div>
-      </div>
-
-      {/* Comments list */}
-      <div style={{ padding: "16px 24px" }}>
-        {loading && <p style={s.empty}>Loading…</p>}
-        {!loading && comments.length === 0 && (
-          <p style={s.empty}>No comments yet.<br />Start the discussion below.</p>
-        )}
-        {topLevel.map(c => <CommentItem key={c.id} comment={c} depth={0} />)}
-        <div ref={bottomRef} />
-      </div>
-
-      {/* Fixed input at bottom */}
-      <div style={s.commentInputWrap}>
-        {replyingTo && (
-          <div style={s.replyBanner}>
-            <span>Replying to <span style={{ color: "#c8a96e" }}>@{replyingTo.username}</span></span>
-            <button style={s.cancelReply} onClick={() => setReplyingTo(null)}>×</button>
-          </div>
-        )}
-        <div style={s.commentRow}>
-          <input
-            style={s.commentInput}
-            placeholder={replyingTo ? `Reply to @${replyingTo.username}…` : "Add a comment…"}
-            value={text}
-            onChange={e => setText(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && submit()}
-            autoFocus
-          />
-          <button style={{ ...s.sendBtn, opacity: text.trim() ? 1 : 0.4 }} onClick={submit}>→</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Feed Page ────────────────────────────────────────────────────────────────
+// ─── Feed Page (full screen scroll) ──────────────────────────────────────────
 
 function FeedPage({ userId, onWriterClick, onCommentClick }) {
   const [quotes, setQuotes] = useState([]);
@@ -283,7 +180,6 @@ function FeedPage({ userId, onWriterClick, onCommentClick }) {
     const cc = {};
     allComments?.forEach(c => { cc[c.quote_id] = (cc[c.quote_id] || 0) + 1; });
     setCommentCounts(cc);
-
     setLoading(false);
   }
 
@@ -300,18 +196,25 @@ function FeedPage({ userId, onWriterClick, onCommentClick }) {
     }
   }
 
-  if (loading) return <div style={s.loading}>Loading your feed…</div>;
+  if (loading) return <div style={s.loading}>Loading…</div>;
 
   return (
-    <div style={s.page}>
-      <div style={s.header}>
-        <h1 style={s.logo}>Axiom</h1>
-        {!followingAny && <p style={s.hint}>Follow writers on the Search tab to curate your feed ↓</p>}
+    <div style={{ background: "#faf8f5", minHeight: "100vh" }}>
+      {/* Header */}
+      <div style={s.feedHeader}>
+        <h1 style={s.feedLogo}>Axiom</h1>
+        {!followingAny && <p style={s.hint}>Follow writers on Search to curate your feed</p>}
       </div>
-      <div style={s.feed}>
-        {quotes.length === 0 && <p style={s.empty}>No quotes yet — follow some writers to get started.</p>}
+
+      {/* Full screen snap scroll feed */}
+      <div style={s.snapContainer}>
+        {quotes.length === 0 && (
+          <div style={{ ...s.slide, alignItems: "center", justifyContent: "center" }}>
+            <p style={{ color: "#c0bab2", fontSize: 15, textAlign: "center", lineHeight: 1.8 }}>No quotes yet.<br />Follow some writers to get started.</p>
+          </div>
+        )}
         {quotes.map(q => (
-          <QuoteCard
+          <QuoteSlide
             key={q.id} quote={q}
             liked={likes.has(q.id)} likeCount={likeCounts[q.id] || 0}
             commentCount={commentCounts[q.id] || 0}
@@ -359,7 +262,7 @@ function SearchPage({ userId, onWriterClick }) {
 
   return (
     <div style={s.page}>
-      <div style={s.header}>
+      <div style={s.pageHeader}>
         <h2 style={s.pageTitle}>Discover</h2>
         <input style={s.searchInput} placeholder="Search writers and thinkers…" value={query} onChange={e => search(e.target.value)} />
       </div>
@@ -424,7 +327,7 @@ function WriterPage({ writer, userId, onBack, onCommentClick }) {
 
   return (
     <div style={s.page}>
-      <div style={s.header}>
+      <div style={s.pageHeader}>
         <button style={s.backBtn} onClick={onBack}>← Back</button>
         <div style={s.writerHero}>
           <div style={s.avatarLg}>{writer.name[0]}</div>
@@ -433,16 +336,128 @@ function WriterPage({ writer, userId, onBack, onCommentClick }) {
             <p style={s.writerMeta}>{writer.category} · {writer.born}–{writer.died || "present"}</p>
             {writer.bio && <p style={s.writerBio}>{writer.bio}</p>}
           </div>
-          <button style={{ ...s.pill, background: following ? "transparent" : "#c8a96e", color: following ? "#c8a96e" : "#13100d", border: "1px solid #c8a96e" }} onClick={toggleFollow}>
+          <button style={{ ...s.pill, background: following ? "transparent" : "#2d2d2d", color: following ? "#2d2d2d" : "#faf8f5", border: "1.5px solid #2d2d2d" }} onClick={toggleFollow}>
             {following ? "Following" : "Follow"}
           </button>
         </div>
       </div>
       <div style={s.feed}>
         {quotes.map(q => (
-          <QuoteCard key={q.id} quote={q} liked={likes.has(q.id)} likeCount={likeCounts[q.id] || 0}
-            commentCount={commentCounts[q.id] || 0} onLike={toggleLike} onWriterClick={() => {}} onCommentClick={onCommentClick} />
+          <div key={q.id} style={s.quoteListCard}>
+            <p style={s.quoteListText}>"{q.text}"</p>
+            {q.source && <p style={s.writerMeta}>{q.source}</p>}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 14, marginTop: 14 }}>
+              <button style={{ ...s.iconBtn, color: commentCounts[q.id] ? "#2d2d2d" : "#c0bab2" }} onClick={() => onCommentClick(q)}>
+                ◎{commentCounts[q.id] > 0 ? ` ${commentCounts[q.id]}` : ""}
+              </button>
+              <button style={{ ...s.iconBtn, color: likes.has(q.id) ? "#e05555" : "#c0bab2" }} onClick={() => toggleLike(q.id)}>
+                {likes.has(q.id) ? "♥" : "♡"}{likeCounts[q.id] > 0 ? ` ${likeCounts[q.id]}` : ""}
+              </button>
+            </div>
+          </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Comments Page ────────────────────────────────────────────────────────────
+
+function CommentsPage({ quote, userId, onBack }) {
+  const [comments, setComments] = useState([]);
+  const [text, setText] = useState("");
+  const [replyingTo, setReplyingTo] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const bottomRef = useRef(null);
+
+  useEffect(() => { loadComments(); }, [quote.id]);
+
+  async function loadComments() {
+    setLoading(true);
+    const { data } = await supabase.from("comments").select("*, profiles(username)").eq("quote_id", quote.id).order("created_at", { ascending: true });
+    setComments(data || []);
+    setLoading(false);
+  }
+
+  async function submit() {
+    if (!text.trim()) return;
+    const { data, error } = await supabase.from("comments").insert({ quote_id: quote.id, user_id: userId, parent_id: replyingTo?.id || null, text: text.trim() }).select("*, profiles(username)");
+    if (!error && data?.[0]) {
+      setComments(prev => [...prev, data[0]]);
+      setText("");
+      setReplyingTo(null);
+      setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+    }
+  }
+
+  async function deleteComment(commentId) {
+    await supabase.from("comments").delete().eq("id", commentId).eq("user_id", userId);
+    setComments(prev => prev.filter(c => c.id !== commentId));
+  }
+
+  const topLevel = comments.filter(c => !c.parent_id);
+  const getReplies = (parentId) => comments.filter(c => c.parent_id === parentId);
+
+  function timeAgo(dateStr) {
+    const diff = (Date.now() - new Date(dateStr)) / 1000;
+    if (diff < 60) return "just now";
+    if (diff < 3600) return `${Math.floor(diff / 60)}m`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
+    return `${Math.floor(diff / 86400)}d`;
+  }
+
+  function CommentItem({ comment, depth }) {
+    const replies = getReplies(comment.id);
+    const isOwn = comment.user_id === userId;
+    return (
+      <div style={{ marginLeft: depth > 0 ? 20 : 0, marginBottom: 16 }}>
+        <div style={{ borderLeft: depth > 0 ? "2px solid #e8e4de" : "none", paddingLeft: depth > 0 ? 14 : 0 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+            <span style={{ fontSize: 13, fontWeight: 500, color: "#2d2d2d" }}>@{comment.profiles?.username}</span>
+            <div style={{ display: "flex", gap: 10 }}>
+              <span style={{ fontSize: 11, color: "#c0bab2" }}>{timeAgo(comment.created_at)}</span>
+              {isOwn && <button style={{ background: "transparent", border: "none", color: "#c0bab2", cursor: "pointer", fontSize: 15, padding: 0, lineHeight: 1 }} onClick={() => deleteComment(comment.id)}>×</button>}
+            </div>
+          </div>
+          <p style={{ fontSize: 14, color: "#4a4540", lineHeight: 1.6, marginBottom: 6 }}>{comment.text}</p>
+          <button
+            style={{ background: "transparent", border: "none", fontSize: 12, color: replyingTo?.id === comment.id ? "#2d2d2d" : "#c0bab2", cursor: "pointer", padding: 0, fontFamily: "'DM Sans', sans-serif" }}
+            onClick={() => setReplyingTo(replyingTo?.id === comment.id ? null : { id: comment.id, username: comment.profiles?.username })}
+          >
+            {replyingTo?.id === comment.id ? "Cancel" : "Reply"}
+          </button>
+        </div>
+        {replies.map(r => <CommentItem key={r.id} comment={r} depth={depth + 1} />)}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ ...s.page, paddingBottom: 130 }}>
+      <div style={s.pageHeader}>
+        <button style={s.backBtn} onClick={onBack}>← Back</button>
+        <div style={s.quoteListCard}>
+          <p style={{ fontFamily: "'DM Serif Display', serif", fontSize: 17, color: "#2d2d2d", lineHeight: 1.6, fontStyle: "italic", marginBottom: 8 }}>"{quote.text}"</p>
+          <p style={{ fontSize: 13, color: "#a09890" }}>— {quote.writers?.name}</p>
+        </div>
+      </div>
+      <div style={{ padding: "16px 24px" }}>
+        {loading && <p style={s.empty}>Loading…</p>}
+        {!loading && comments.length === 0 && <p style={s.empty}>No comments yet.<br />Start the discussion below.</p>}
+        {topLevel.map(c => <CommentItem key={c.id} comment={c} depth={0} />)}
+        <div ref={bottomRef} />
+      </div>
+      <div style={s.commentInputWrap}>
+        {replyingTo && (
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#a09890", marginBottom: 8 }}>
+            <span>Replying to <span style={{ color: "#2d2d2d", fontWeight: 500 }}>@{replyingTo.username}</span></span>
+            <button style={{ background: "transparent", border: "none", color: "#c0bab2", fontSize: 18, cursor: "pointer", lineHeight: 1 }} onClick={() => setReplyingTo(null)}>×</button>
+          </div>
+        )}
+        <div style={{ display: "flex", gap: 10 }}>
+          <input style={s.commentInput} placeholder={replyingTo ? `Reply to @${replyingTo.username}…` : "Add a comment…"} value={text} onChange={e => setText(e.target.value)} onKeyDown={e => e.key === "Enter" && submit()} autoFocus />
+          <button style={{ ...s.sendBtn, opacity: text.trim() ? 1 : 0.35 }} onClick={submit}>→</button>
+        </div>
       </div>
     </div>
   );
@@ -469,7 +484,7 @@ function ProfilePage({ userId, onSignOut, onWriterClick }) {
 
   return (
     <div style={s.page}>
-      <div style={s.header}>
+      <div style={s.pageHeader}>
         <div style={s.writerHero}>
           <div style={s.avatarLg}>{(profile?.username || "?")[0].toUpperCase()}</div>
           <div style={{ flex: 1 }}>
@@ -480,21 +495,21 @@ function ProfilePage({ userId, onSignOut, onWriterClick }) {
         </div>
         <div style={s.tabRow}>
           {["liked", "following"].map(t => (
-            <button key={t} style={{ ...s.tabBtn, color: tab === t ? "#c8a96e" : "#4a3e2a", borderBottom: tab === t ? "2px solid #c8a96e" : "2px solid transparent" }} onClick={() => setTab(t)}>
+            <button key={t} style={{ ...s.tabBtn, color: tab === t ? "#2d2d2d" : "#c0bab2", borderBottom: tab === t ? "2px solid #2d2d2d" : "2px solid transparent" }} onClick={() => setTab(t)}>
               {t.charAt(0).toUpperCase() + t.slice(1)}
             </button>
           ))}
         </div>
       </div>
       <div style={s.feed}>
-        {tab === "liked" && liked.length === 0 && <p style={s.empty}>No liked quotes yet — heart some quotes on your feed.</p>}
+        {tab === "liked" && liked.length === 0 && <p style={s.empty}>No liked quotes yet.</p>}
         {tab === "liked" && liked.map((q, i) => (
-          <div key={i} style={s.card}>
-            <p style={s.quoteText}>"{q.text}"</p>
-            <p style={{ ...s.writerMeta, marginTop: 12 }}>— {q.writers?.name}{q.source ? `, ${q.source}` : ""}</p>
+          <div key={i} style={s.quoteListCard}>
+            <p style={{ fontFamily: "'DM Serif Display', serif", fontSize: 17, color: "#2d2d2d", lineHeight: 1.6, fontStyle: "italic", marginBottom: 8 }}>"{q.text}"</p>
+            <p style={{ fontSize: 13, color: "#a09890" }}>— {q.writers?.name}{q.source ? `, ${q.source}` : ""}</p>
           </div>
         ))}
-        {tab === "following" && following.length === 0 && <p style={s.empty}>Not following anyone yet — discover writers on the Search tab.</p>}
+        {tab === "following" && following.length === 0 && <p style={s.empty}>Not following anyone yet.</p>}
         {tab === "following" && following.map(w => (
           <div key={w.id} style={s.writerCard} onClick={() => onWriterClick(w)}>
             <div style={s.avatar}>{w.name[0]}</div>
@@ -512,66 +527,75 @@ function ProfilePage({ userId, onSignOut, onWriterClick }) {
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const s = {
-  page: { paddingBottom: 80, minHeight: "100vh", background: "#13100d" },
-  header: { position: "sticky", top: 0, background: "#13100d", zIndex: 10, padding: "20px 24px 0", borderBottom: "1px solid #1e1a14" },
+  // Layout
+  page: { paddingBottom: 80, minHeight: "100vh", background: "#faf8f5" },
+  pageHeader: { position: "sticky", top: 0, background: "#faf8f5", zIndex: 10, padding: "20px 24px 0", borderBottom: "1px solid #ede9e3" },
   feed: { padding: "16px 24px" },
-  loading: { display: "flex", alignItems: "center", justifyContent: "center", height: "70vh", color: "#c8a96e", fontFamily: "'DM Serif Display', serif", fontSize: 20, background: "#13100d" },
-  empty: { color: "#4a3e2a", textAlign: "center", padding: "48px 0", fontSize: 14, lineHeight: 1.8 },
+  loading: { display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", color: "#2d2d2d", fontFamily: "'DM Serif Display', serif", fontSize: 20, background: "#faf8f5" },
+  empty: { color: "#c0bab2", textAlign: "center", padding: "48px 0", fontSize: 14, lineHeight: 1.8 },
 
-  authWrap: { display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", padding: 24, background: "#13100d" },
+  // Auth
+  authWrap: { display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", padding: 24, background: "#faf8f5" },
   authBox: { width: "100%", maxWidth: 360, display: "flex", flexDirection: "column", gap: 12 },
-  authLogo: { fontFamily: "'DM Serif Display', serif", fontSize: 58, color: "#f0e6d0", textAlign: "center" },
-  authTagline: { color: "#4a3e2a", textAlign: "center", fontSize: 14, marginBottom: 20 },
-  toggle: { display: "flex", background: "#1d1810", border: "1px solid #2a2218", borderRadius: 10, padding: 3, gap: 2, marginBottom: 4 },
+  authLogo: { fontFamily: "'DM Serif Display', serif", fontSize: 58, color: "#2d2d2d", textAlign: "center" },
+  authTagline: { color: "#a09890", textAlign: "center", fontSize: 14, marginBottom: 20 },
+  toggle: { display: "flex", background: "#f0ece6", borderRadius: 10, padding: 3, gap: 2, marginBottom: 4 },
   toggleBtn: { flex: 1, border: "none", borderRadius: 7, padding: "9px 0", fontSize: 13, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", transition: "all 0.15s" },
-  input: { background: "#1d1810", border: "1px solid #2a2218", borderRadius: 10, padding: "14px 16px", color: "#e8dcc8", fontSize: 15, fontFamily: "'DM Sans', sans-serif", width: "100%" },
-  error: { color: "#a06060", fontSize: 13 },
-  submitBtn: { background: "#c8a96e", border: "none", color: "#13100d", borderRadius: 10, padding: 14, fontSize: 15, fontWeight: 500, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", marginTop: 4 },
+  input: { background: "#fff", border: "1.5px solid #ede9e3", borderRadius: 10, padding: "14px 16px", color: "#2d2d2d", fontSize: 15, fontFamily: "'DM Sans', sans-serif", width: "100%" },
+  error: { color: "#c05050", fontSize: 13 },
+  submitBtn: { background: "#2d2d2d", border: "none", color: "#faf8f5", borderRadius: 10, padding: 14, fontSize: 15, fontWeight: 500, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", marginTop: 4 },
 
-  card: { background: "#1a1610", border: "1px solid #1e1a14", borderRadius: 14, padding: "24px 20px", marginBottom: 10 },
-  quoteText: { fontFamily: "'DM Serif Display', serif", fontSize: 20, color: "#f0e6d0", lineHeight: 1.65, marginBottom: 18, fontStyle: "italic" },
-  cardFooter: { display: "flex", alignItems: "center", justifyContent: "space-between" },
-  writerBtn: { background: "transparent", border: "none", color: "#c8a96e", fontSize: 13, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", textAlign: "left", padding: 0 },
-  dash: { color: "#4a3e2a" },
-  source: { color: "#4a3e2a" },
-  iconBtn: { background: "transparent", border: "none", fontSize: 15, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", transition: "color 0.15s", flexShrink: 0 },
+  // Full screen feed
+  feedHeader: { position: "fixed", top: 0, left: 0, right: 0, zIndex: 20, padding: "16px 24px 12px", background: "rgba(250,248,245,0.92)", backdropFilter: "blur(8px)", borderBottom: "1px solid #ede9e3" },
+  feedLogo: { fontFamily: "'DM Serif Display', serif", fontSize: 26, color: "#2d2d2d" },
+  hint: { fontSize: 11, color: "#c0bab2", marginTop: 2 },
+  snapContainer: { paddingTop: 64, paddingBottom: 70 },
 
-  writerCard: { display: "flex", alignItems: "center", gap: 14, background: "#1a1610", border: "1px solid #1e1a14", borderRadius: 14, padding: "16px 18px", marginBottom: 10, cursor: "pointer" },
-  avatar: { width: 46, height: 46, borderRadius: "50%", background: "#2a2218", border: "1px solid #3d3020", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'DM Serif Display', serif", fontSize: 22, color: "#c8a96e", flexShrink: 0 },
-  avatarLg: { width: 58, height: 58, borderRadius: "50%", background: "#2a2218", border: "1px solid #3d3020", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'DM Serif Display', serif", fontSize: 28, color: "#c8a96e", flexShrink: 0 },
-  writerName: { color: "#e8dcc8", fontSize: 15, fontWeight: 500, marginBottom: 3 },
-  writerNameLg: { fontFamily: "'DM Serif Display', serif", fontSize: 26, color: "#f0e6d0", marginBottom: 4 },
-  writerMeta: { color: "#4a3e2a", fontSize: 12 },
-  writerBio: { color: "#7a6e5a", fontSize: 13, marginTop: 8, lineHeight: 1.6 },
+  // Full screen slide
+  slide: { height: "calc(100vh - 134px)", display: "flex", flexDirection: "column", justifyContent: "center", position: "relative", padding: "40px 32px 40px 32px", borderBottom: "1px solid #ede9e3" },
+  categoryPill: { position: "absolute", top: 24, left: 32, background: "#f0ece6", color: "#a09890", fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", padding: "5px 12px", borderRadius: 20 },
+  slideContent: { flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", paddingRight: 56 },
+  slideQuote: { fontFamily: "'DM Serif Display', serif", fontSize: 26, color: "#2d2d2d", lineHeight: 1.6, fontStyle: "italic", marginBottom: 24 },
+  slideWriter: { background: "transparent", border: "none", color: "#a09890", fontSize: 14, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", textAlign: "left", padding: 0 },
+  slideSource: { color: "#c0bab2" },
+  slideActions: { position: "absolute", right: 16, top: "50%", transform: "translateY(-50%)", display: "flex", flexDirection: "column", gap: 20, alignItems: "center" },
+  actionItem: { display: "flex", flexDirection: "column", alignItems: "center", gap: 4 },
+  actionBtn: { background: "transparent", border: "none", cursor: "pointer", padding: 4, display: "flex", alignItems: "center", justifyContent: "center", transition: "transform 0.2s" },
+  actionCount: { fontSize: 11, color: "#a09890", fontFamily: "'DM Sans', sans-serif" },
+  scrollHint: { position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)", color: "#d8d2ca", fontSize: 18 },
+
+  // Quote list card (for writer page and profile)
+  quoteListCard: { background: "#fff", border: "1px solid #ede9e3", borderRadius: 14, padding: "20px 18px", marginBottom: 10 },
+  quoteListText: { fontFamily: "'DM Serif Display', serif", fontSize: 17, color: "#2d2d2d", lineHeight: 1.65, fontStyle: "italic", marginBottom: 10 },
+  iconBtn: { background: "transparent", border: "none", fontSize: 15, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" },
+
+  // Writers
+  writerCard: { display: "flex", alignItems: "center", gap: 14, background: "#fff", border: "1px solid #ede9e3", borderRadius: 14, padding: "16px 18px", marginBottom: 10, cursor: "pointer" },
+  avatar: { width: 46, height: 46, borderRadius: "50%", background: "#f0ece6", border: "1px solid #ede9e3", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'DM Serif Display', serif", fontSize: 22, color: "#2d2d2d", flexShrink: 0 },
+  avatarLg: { width: 58, height: 58, borderRadius: "50%", background: "#f0ece6", border: "1px solid #ede9e3", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'DM Serif Display', serif", fontSize: 28, color: "#2d2d2d", flexShrink: 0 },
+  writerName: { color: "#2d2d2d", fontSize: 15, fontWeight: 500, marginBottom: 3 },
+  writerNameLg: { fontFamily: "'DM Serif Display', serif", fontSize: 26, color: "#2d2d2d", marginBottom: 4 },
+  writerMeta: { color: "#a09890", fontSize: 12 },
+  writerBio: { color: "#7a7068", fontSize: 13, marginTop: 8, lineHeight: 1.6 },
   writerHero: { display: "flex", gap: 16, alignItems: "flex-start", paddingBottom: 20, flexWrap: "wrap" },
   pill: { borderRadius: 20, padding: "7px 18px", fontSize: 13, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontWeight: 500, whiteSpace: "nowrap", flexShrink: 0 },
-  signOutBtn: { background: "transparent", border: "1px solid #2a2218", color: "#4a3e2a", borderRadius: 20, padding: "7px 16px", fontSize: 13, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", marginLeft: "auto", flexShrink: 0 },
-  backBtn: { background: "transparent", border: "none", color: "#c8a96e", fontSize: 14, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", marginBottom: 16, padding: 0 },
+  signOutBtn: { background: "transparent", border: "1px solid #ede9e3", color: "#a09890", borderRadius: 20, padding: "7px 16px", fontSize: 13, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", marginLeft: "auto", flexShrink: 0 },
+  backBtn: { background: "transparent", border: "none", color: "#2d2d2d", fontSize: 14, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", marginBottom: 16, padding: 0 },
 
-  nav: { position: "fixed", bottom: 0, left: 0, right: 0, background: "#13100d", borderTop: "1px solid #1e1a14", display: "flex", padding: "8px 0 16px", zIndex: 100 },
+  // Nav
+  nav: { position: "fixed", bottom: 0, left: 0, right: 0, background: "rgba(250,248,245,0.95)", backdropFilter: "blur(8px)", borderTop: "1px solid #ede9e3", display: "flex", padding: "8px 0 16px", zIndex: 100 },
   navBtn: { flex: 1, background: "transparent", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, fontFamily: "'DM Sans', sans-serif", transition: "color 0.15s" },
 
-  logo: { fontFamily: "'DM Serif Display', serif", fontSize: 30, color: "#f0e6d0", marginBottom: 8 },
-  pageTitle: { fontFamily: "'DM Serif Display', serif", fontSize: 30, color: "#f0e6d0", marginBottom: 14 },
-  hint: { color: "#4a3e2a", fontSize: 12, marginBottom: 12 },
-  searchInput: { width: "100%", background: "#1a1610", border: "1px solid #1e1a14", borderRadius: 10, padding: "12px 16px", color: "#e8dcc8", fontSize: 15, fontFamily: "'DM Sans', sans-serif", marginBottom: 16 },
+  // Other
+  pageTitle: { fontFamily: "'DM Serif Display', serif", fontSize: 30, color: "#2d2d2d", marginBottom: 14 },
+  searchInput: { width: "100%", background: "#fff", border: "1.5px solid #ede9e3", borderRadius: 10, padding: "12px 16px", color: "#2d2d2d", fontSize: 15, fontFamily: "'DM Sans', sans-serif", marginBottom: 16 },
   tabRow: { display: "flex" },
   tabBtn: { flex: 1, background: "transparent", border: "none", borderBottom: "2px solid transparent", padding: "12px 0", fontSize: 14, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", transition: "all 0.15s" },
 
   // Comments
-  commentCard: { marginBottom: 4 },
-  commentHeader: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 5 },
-  commentUser: { color: "#c8a96e", fontSize: 13, fontWeight: 500 },
-  commentTime: { color: "#3a3020", fontSize: 11 },
-  commentText: { color: "#c8b89a", fontSize: 14, lineHeight: 1.6, marginBottom: 6 },
-  replyBtn: { background: "transparent", border: "none", fontSize: 12, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", padding: 0 },
-  deleteBtn: { background: "transparent", border: "none", color: "#3a3020", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: 0 },
-  commentInputWrap: { position: "fixed", bottom: 0, left: 0, right: 0, background: "#13100d", borderTop: "1px solid #1e1a14", padding: "10px 16px 24px", zIndex: 100 },
-  replyBanner: { display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12, color: "#6b5e45", marginBottom: 8 },
-  cancelReply: { background: "transparent", border: "none", color: "#6b5e45", fontSize: 18, cursor: "pointer", lineHeight: 1 },
-  commentRow: { display: "flex", gap: 10, alignItems: "center" },
-  commentInput: { flex: 1, background: "#1a1610", border: "1px solid #2a2218", borderRadius: 22, padding: "11px 18px", color: "#e8dcc8", fontSize: 14, fontFamily: "'DM Sans', sans-serif" },
-  sendBtn: { background: "#c8a96e", border: "none", color: "#13100d", width: 40, height: 40, borderRadius: "50%", fontSize: 18, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "opacity 0.15s" },
+  commentInputWrap: { position: "fixed", bottom: 0, left: 0, right: 0, background: "rgba(250,248,245,0.97)", borderTop: "1px solid #ede9e3", padding: "10px 16px 24px", zIndex: 100 },
+  commentInput: { flex: 1, background: "#fff", border: "1.5px solid #ede9e3", borderRadius: 22, padding: "11px 18px", color: "#2d2d2d", fontSize: 14, fontFamily: "'DM Sans', sans-serif" },
+  sendBtn: { background: "#2d2d2d", border: "none", color: "#faf8f5", width: 40, height: 40, borderRadius: "50%", fontSize: 18, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "opacity 0.15s" },
 };
 
 // ─── Main App ─────────────────────────────────────────────────────────────────
@@ -605,13 +629,14 @@ export default function App() {
   const showNav = page !== "writer" && page !== "comments";
 
   return (
-    <div style={{ background: "#13100d", minHeight: "100vh" }}>
+    <div style={{ background: "#faf8f5", minHeight: "100vh" }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { background: #13100d; }
+        body { background: #faf8f5; }
         input { outline: none; }
-        input::placeholder { color: #3a3020; }
+        input::placeholder { color: #c0bab2; }
+        html { scroll-behavior: smooth; }
       `}</style>
 
       {page === "feed" && <FeedPage userId={user.id} onWriterClick={openWriter} onCommentClick={openComments} />}
