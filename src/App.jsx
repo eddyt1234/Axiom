@@ -3,7 +3,7 @@ import { supabase } from "./supabase";
 
 // ─── Full Screen Quote Card ───────────────────────────────────────────────────
 
-function QuoteSlide({ quote, liked, likeCount, commentCount, onLike, onWriterClick, onCommentClick }) {
+function QuoteSlide({ quote, liked, likeCount, commentCount, onLike, onWriterClick, onCommentClick, isLast }) {
   const [pressed, setPressed] = useState(false);
 
   return (
@@ -42,7 +42,7 @@ function QuoteSlide({ quote, liked, likeCount, commentCount, onLike, onWriterCli
       </div>
 
       {/* Scroll hint */}
-      <div style={s.scrollHint}>↓</div>
+      <div style={s.scrollHint}>{isLast ? "END" : "↓"}</div>
     </div>
   );
 }
@@ -213,12 +213,13 @@ function FeedPage({ userId, onWriterClick, onCommentClick }) {
             <p style={{ color: "#c0bab2", fontSize: 15, textAlign: "center", lineHeight: 1.8 }}>No quotes yet.<br />Follow some writers to get started.</p>
           </div>
         )}
-        {quotes.map(q => (
+        {quotes.map((q, i) => (
           <QuoteSlide
             key={q.id} quote={q}
             liked={likes.has(q.id)} likeCount={likeCounts[q.id] || 0}
             commentCount={commentCounts[q.id] || 0}
             onLike={toggleLike} onWriterClick={onWriterClick} onCommentClick={onCommentClick}
+            isLast={i === quotes.length - 1}
           />
         ))}
       </div>
@@ -549,10 +550,10 @@ const s = {
   feedHeader: { position: "fixed", top: 0, left: 0, right: 0, zIndex: 20, padding: "16px 24px 12px", background: "rgba(250,248,245,0.92)", backdropFilter: "blur(8px)", borderBottom: "1px solid #ede9e3" },
   feedLogo: { fontFamily: "'DM Serif Display', serif", fontSize: 26, color: "#2d2d2d" },
   hint: { fontSize: 11, color: "#c0bab2", marginTop: 2 },
-  snapContainer: { paddingTop: 64, paddingBottom: 70 },
+  snapContainer: { height: "calc(100vh - 134px)", marginTop: 64, overflowY: "scroll", scrollSnapType: "y mandatory", WebkitOverflowScrolling: "touch" },
 
   // Full screen slide
-  slide: { height: "calc(100vh - 134px)", display: "flex", flexDirection: "column", justifyContent: "center", position: "relative", padding: "40px 32px 40px 32px", borderBottom: "1px solid #ede9e3" },
+  slide: { height: "calc(100vh - 134px)", flexShrink: 0, scrollSnapAlign: "start", display: "flex", flexDirection: "column", justifyContent: "center", position: "relative", padding: "40px 32px 40px 32px", borderBottom: "1px solid #ede9e3" },
   categoryPill: { position: "absolute", top: 24, left: 32, background: "#f0ece6", color: "#a09890", fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", padding: "5px 12px", borderRadius: 20 },
   slideContent: { flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", paddingRight: 56 },
   slideQuote: { fontFamily: "'DM Serif Display', serif", fontSize: 26, color: "#2d2d2d", lineHeight: 1.6, fontStyle: "italic", marginBottom: 24 },
@@ -562,7 +563,7 @@ const s = {
   actionItem: { display: "flex", flexDirection: "column", alignItems: "center", gap: 4 },
   actionBtn: { background: "transparent", border: "none", cursor: "pointer", padding: 4, display: "flex", alignItems: "center", justifyContent: "center", transition: "transform 0.2s" },
   actionCount: { fontSize: 11, color: "#a09890", fontFamily: "'DM Sans', sans-serif" },
-  scrollHint: { position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)", color: "#d8d2ca", fontSize: 18 },
+  scrollHint: { position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)", color: "#d8d2ca", fontSize: 18, animation: "bounce 1.5s ease-in-out infinite" },
 
   // Quote list card (for writer page and profile)
   quoteListCard: { background: "#fff", border: "1px solid #ede9e3", borderRadius: 14, padding: "20px 18px", marginBottom: 10 },
@@ -637,6 +638,10 @@ export default function App() {
         input { outline: none; }
         input::placeholder { color: #c0bab2; }
         html { scroll-behavior: smooth; }
+        @keyframes bounce {
+          0%, 100% { transform: translateX(-50%) translateY(0); }
+          50% { transform: translateX(-50%) translateY(6px); }
+        }
       `}</style>
 
       {page === "feed" && <FeedPage userId={user.id} onWriterClick={openWriter} onCommentClick={openComments} />}
