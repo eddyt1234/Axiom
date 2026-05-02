@@ -173,92 +173,69 @@ const [isPulling, setIsPulling] = useState(false);
 
   // ── Core algorithm ──────────────────────────────────────────────────────────
   async function buildBatch(currentSeenIds) {
-    const [{ data: follows }, { data: myLikes }] = await Promise.all([
-      supabase.from("follows").select("writer_id").eq("user_id", userId),
-      supabase.from("likes").select("quote_id, quotes(category)").eq("user_id", userId),
+  const [{ data: follows }, { data: myLikes }] = await Promise.all([
+    supabase.from("follows").select("writer_id").eq("user_id", userId),
+    supabase.from("likes").select("quote_id, quotes(category)").eq("user_id", userId),
+  ]);
+
+  const followedIds = follows?.map(f => f.writer_id) || [];
+  const seenArr = Array.from(currentSeenIds);
+  const isNewUser = followedIds.length < 10;
+
+  const rpc = (params) =>
+    supabase.rpc("get_random_quotes", {
+      p_exclude_ids: seenArr.length > 0 ? seenArr : [],
+      ...params,
+    });
+
+  let batch = [];
+
+  if (isNewUser) {
+    const { data: random } = await rpc({ p_limit: 20 });
+    batch = random || [];
+
+  } else {
+    const catCounts = {};
+    myLikes?.forEach(l => {
+      const cats = l.quotes?.category || [];
+      cats.forEach(c => { catCounts[c] = (catCounts[c] || 0) + 1; });
+    });
+    const topCats = Object.entries(catCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([cat]) => cat);
+
+    const [followedRes, discoveryRes, randomRes] = await Promise.all([
+      rpc({ p_limit: 5, p_writer_ids: followedIds }),
+      topCats.length > 0
+        ? rpc({ p_limit: 4, p_tags: topCats, p_exclude_writer_ids: followedIds })
+        : { data: [] },
+      rpc({ p_limit: 1 }),
     ]);
 
-    const followedIds = follows?.map(f => f.writer_id) || [];
-    const seenArr = Array.from(currentSeenIds);
-    const isNewUser = followedIds.length < 10;
+    const seen = new Set();
+    const merged = [
+      ...(followedRes.data || []),
+      ...(discoveryRes.data || []),
+      ...(randomRes.data || []),
+    ].filter(q => {
+      if (seen.has(q.id)) return false;
+      seen.add(q.id);
+      return true;
+    });
 
-    let batch = [];
+    batch = merged.sort(() => Math.random() - 0.5);
 
-    if (isNewUser) {
-      const { data: random } = await supabase
-        .from("quotes")
-        .select("*, writers(id, name, category)")
-        .not("id", "in", seenArr.length > 0 ? `(${seenArr.join(",")})` : "(0)")
-        .limit(100);
-
-      batch = (random || []).sort(() => Math.random() - 0.5).slice(0, 10);
-
-    } else {
-      const catCounts = {};
-      myLikes?.forEach(l => {
-        const cats = l.quotes?.category || [];
-        cats.forEach(c => { catCounts[c] = (catCounts[c] || 0) + 1; });
-      });
-      const topCats = Object.entries(catCounts)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 5)
-        .map(([cat]) => cat);
-
-      const [followedRes, discoveryRes, randomRes] = await Promise.all([
-        supabase
-          .from("quotes")
-          .select("*, writers(id, name, category)")
-          .in("writer_id", followedIds)
-          .not("id", "in", seenArr.length > 0 ? `(${seenArr.join(",")})` : "(0)")
-          .limit(50),
-
-        topCats.length > 0
-          ? supabase
-              .from("quotes")
-              .select("*, writers(id, name, category)")
-              .overlaps("category", topCats)
-              .not("writer_id", "in", `(${followedIds.join(",")})`)
-              .not("id", "in", seenArr.length > 0 ? `(${seenArr.join(",")})` : "(0)")
-              .limit(50)
-          : { data: [] },
-
-        supabase
-          .from("quotes")
-          .select("*, writers(id, name, category)")
-          .not("id", "in", seenArr.length > 0 ? `(${seenArr.join(",")})` : "(0)")
-          .limit(50),
-      ]);
-
-      const pick = (arr, n) => (arr || []).sort(() => Math.random() - 0.5).slice(0, n);
-
-      const followedPick  = pick(followedRes.data, 5);
-      const discoveryPick = pick(discoveryRes.data, 4);
-      const randomPick    = pick(randomRes.data, 1);
-
-      const seen = new Set();
-      const merged = [...followedPick, ...discoveryPick, ...randomPick].filter(q => {
-        if (seen.has(q.id)) return false;
-        seen.add(q.id);
-        return true;
-      });
-
-      batch = merged.sort(() => Math.random() - 0.5);
-
-      if (batch.length < 5) {
-        const { data: topUp } = await supabase
-          .from("quotes")
-          .select("*, writers(id, name, category)")
-          .not("id", "in", seenArr.length > 0 ? `(${seenArr.join(",")})` : "(0)")
-          .limit(20);
-        const extra = pick(topUp, 10 - batch.length);
-        batch = [...batch, ...extra].filter((q, i, arr) =>
-          arr.findIndex(x => x.id === q.id) === i
-        );
-      }
+    if (batch.length < 5) {
+      const { data: topUp } = await rpc({ p_limit: 10 - batch.length });
+      batch = [...batch, ...(topUp || [])].filter((q, i, arr) =>
+        arr.findIndex(x => x.id === q.id) === i
+      );
     }
-
-    return batch;
   }
+
+  return batch;
+}
 
   // ── Load / refresh feed ────────────────────────────────────────────────────
   async function loadFeed(isInitial = false) {
