@@ -399,7 +399,6 @@ function FeedPage({ userId, onWriterClick, onCommentClick, scrollRef }) {
           <div style={{
             width: 28, height: 28, borderRadius: "50%",
             border: "2.5px solid #2d2d2d", borderTopColor: "transparent",
-            transform: `scale(${refreshing ? 1 : pullProgress >= 1 ? 1.15 : 0.8 + pullProgress * 0.2})`,
             animation: refreshing ? "spinFeed 0.8s linear infinite" : "none",
             transition: isPulling ? "none" : "transform 0.2s",
           }} />
