@@ -400,7 +400,7 @@ function FeedPage({ userId, onWriterClick, onCommentClick, scrollRef }) {
             width: 28, height: 28, borderRadius: "50%",
             border: "2.5px solid #2d2d2d", borderTopColor: "transparent",
             transform: `scale(${refreshing ? 1 : pullProgress >= 1 ? 1.15 : 0.8 + pullProgress * 0.2})`,
-            animation: refreshing ? "spin 0.8s linear infinite" : "none",
+            animation: refreshing ? "spinFeed 0.8s linear infinite" : "none",
             transition: isPulling ? "none" : "transform 0.2s",
           }} />
         </div>
@@ -888,7 +888,7 @@ export default function App() {
           0%, 100% { transform: translateX(-50%) translateY(0); }
           50% { transform: translateX(-50%) translateY(6px); }
         }
-        @keyframes spin {
+        @keyframes spinFeed {
           to { transform: rotate(360deg); }
         }
       `}</style>
