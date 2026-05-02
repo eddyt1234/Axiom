@@ -171,12 +171,13 @@ function FeedPage({ userId, onWriterClick, onCommentClick }) {
     const { data: myLikes } = await supabase.from("likes").select("quote_id").eq("user_id", userId);
     setLikes(new Set(myLikes?.map(l => l.quote_id) || []));
 
-    const { data: allLikes } = await supabase.from("likes").select("quote_id");
+    const quoteIds = quotesData?.map(q => q.id) || [];
+    const { data: allLikes } = await supabase.from("likes").select("quote_id").in("quote_id", quoteIds);
     const lc = {};
     allLikes?.forEach(l => { lc[l.quote_id] = (lc[l.quote_id] || 0) + 1; });
     setLikeCounts(lc);
 
-    const { data: allComments } = await supabase.from("comments").select("quote_id");
+    const { data: allComments } = await supabase.from("comments").select("quote_id").in("quote_id", quoteIds);
     const cc = {};
     allComments?.forEach(c => { cc[c.quote_id] = (cc[c.quote_id] || 0) + 1; });
     setCommentCounts(cc);
@@ -237,7 +238,7 @@ function SearchPage({ userId, onWriterClick }) {
   useEffect(() => { loadAll(); }, [userId]);
 
   async function loadAll() {
-    const { data: w } = await supabase.from("writers").select("*").order("name");
+    const { data: w } = await supabase.from("writers").select("*").eq("has_full_profile", true).order("name").limit(50);
     setWriters(w || []);
     const { data: f } = await supabase.from("follows").select("writer_id").eq("user_id", userId);
     setFollows(new Set(f?.map(x => x.writer_id) || []));
@@ -246,8 +247,8 @@ function SearchPage({ userId, onWriterClick }) {
   async function search(q) {
     setQuery(q);
     const { data } = q.trim()
-      ? await supabase.from("writers").select("*").ilike("name", `%${q}%`).order("name")
-      : await supabase.from("writers").select("*").order("name");
+      ? await supabase.from("writers").select("*").eq("has_full_profile", true).ilike("name", `%${q}%`).order("name").limit(50)
+      : await supabase.from("writers").select("*").eq("has_full_profile", true).order("name").limit(50);
     setWriters(data || []);
   }
 
@@ -294,11 +295,12 @@ function WriterPage({ writer, userId, onBack, onCommentClick }) {
     setFollowing(f?.length > 0);
     const { data: l } = await supabase.from("likes").select("quote_id").eq("user_id", userId);
     setLikes(new Set(l?.map(x => x.quote_id) || []));
-    const { data: all } = await supabase.from("likes").select("quote_id");
+    const writerQuoteIds = q?.map(x => x.id) || [];
+    const { data: all } = await supabase.from("likes").select("quote_id").in("quote_id", writerQuoteIds);
     const lc = {};
     all?.forEach(x => { lc[x.quote_id] = (lc[x.quote_id] || 0) + 1; });
     setLikeCounts(lc);
-    const { data: allC } = await supabase.from("comments").select("quote_id");
+    const { data: allC } = await supabase.from("comments").select("quote_id").in("quote_id", writerQuoteIds);
     const cc = {};
     allC?.forEach(x => { cc[x.quote_id] = (cc[x.quote_id] || 0) + 1; });
     setCommentCounts(cc);
