@@ -3,13 +3,17 @@ import { supabase } from "./supabase";
 
 // ─── Full Screen Quote Card ───────────────────────────────────────────────────
 
-function QuoteSlide({ quote, liked, likeCount, commentCount, onLike, onWriterClick, onCommentClick }) {
+function QuoteSlide({ quote, liked, likeCount, commentCount, onLike, onWriterClick, onCommentClick, isLast }) {
   const [pressed, setPressed] = useState(false);
+
   return (
     <div style={s.slide}>
-      {quote.category && Array.isArray(quote.category) && quote.category[0] && (
-        <div style={s.categoryPill}>{quote.category[0]}</div>
+      {/* Category pill */}
+      {quote.writers?.category && (
+        <div style={s.categoryPill}>{quote.writers.category}</div>
       )}
+
+      {/* Quote text centred in card */}
       <div style={s.slideContent}>
         <p style={s.slideQuote}>"{quote.text}"</p>
         <button style={s.slideWriter} onClick={() => onWriterClick && onWriterClick(quote.writers)}>
@@ -17,6 +21,8 @@ function QuoteSlide({ quote, liked, likeCount, commentCount, onLike, onWriterCli
           {quote.source && <span style={s.slideSource}>, {quote.source}</span>}
         </button>
       </div>
+
+      {/* Actions on the right side like Instagram */}
       <div style={s.slideActions}>
         <div style={s.actionItem}>
           <button
@@ -34,7 +40,9 @@ function QuoteSlide({ quote, liked, likeCount, commentCount, onLike, onWriterCli
           {commentCount > 0 && <span style={s.actionCount}>{commentCount}</span>}
         </div>
       </div>
-      <div style={s.scrollHint}>↓</div>
+
+      {/* Scroll hint */}
+      <div style={s.scrollHint}>{isLast ? "END" : "↓"}</div>
     </div>
   );
 }
@@ -74,11 +82,8 @@ function BottomNav({ page, setPage, onFeedTap }) {
           key={t.id}
           style={{ ...s.navBtn, color: page === t.id ? "#2d2d2d" : "#c0bab2" }}
           onClick={() => {
-            if (t.id === "feed" && page === "feed") {
-              onFeedTap && onFeedTap();
-            } else {
-              setPage(t.id);
-            }
+            if (t.id === "feed" && page === "feed") onFeedTap?.();
+            else setPage(t.id);
           }}
         >
           <span style={{ fontSize: 22 }}>{t.icon}</span>
@@ -147,7 +152,7 @@ function AuthPage({ onAuth }) {
   );
 }
 
-// ─── Feed Page ────────────────────────────────────────────────────────────────
+// ─── Feed Page (full screen scroll) ──────────────────────────────────────────
 
 function FeedPage({ userId, onWriterClick, onCommentClick, scrollRef }) {
   const [quotes, setQuotes] = useState([]);
@@ -155,28 +160,25 @@ function FeedPage({ userId, onWriterClick, onCommentClick, scrollRef }) {
   const [likeCounts, setLikeCounts] = useState({});
   const [commentCounts, setCommentCounts] = useState({});
   const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [followCount, setFollowCount] = useState(0);
   const [seenIds, setSeenIds] = useState(new Set());
-  const [pullY, setPullY] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [pullProgress, setPullProgress] = useState(0);
   const [isPulling, setIsPulling] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
   const touchStartY = useRef(null);
-  const PULL_THRESHOLD = 60;
 
   useEffect(() => { loadFeed(true); }, [userId]);
 
-  // ── Algorithm ───────────────────────────────────────────────────────────────
+  // ── Core algorithm ──────────────────────────────────────────────────────────
   async function buildBatch(currentSeenIds) {
-    const seenArr = Array.from(currentSeenIds);
-    const excludeClause = seenArr.length > 0 ? `(${seenArr.join(",")})` : "(0)";
-
     const [{ data: follows }, { data: myLikes }] = await Promise.all([
       supabase.from("follows").select("writer_id").eq("user_id", userId),
       supabase.from("likes").select("quote_id, quotes(category)").eq("user_id", userId),
     ]);
 
     const followedIds = follows?.map(f => f.writer_id) || [];
+    const seenArr = Array.from(currentSeenIds);
     const isNewUser = followedIds.length < 10;
 
     let batch = [];
@@ -185,132 +187,191 @@ function FeedPage({ userId, onWriterClick, onCommentClick, scrollRef }) {
       const { data: random } = await supabase
         .from("quotes")
         .select("*, writers(id, name, category)")
-        .not("id", "in", excludeClause)
+        .not("id", "in", seenArr.length > 0 ? `(${seenArr.join(",")})` : "(0)")
         .limit(100);
+
       batch = (random || []).sort(() => Math.random() - 0.5).slice(0, 10);
+
     } else {
       const catCounts = {};
       myLikes?.forEach(l => {
         const cats = l.quotes?.category || [];
         cats.forEach(c => { catCounts[c] = (catCounts[c] || 0) + 1; });
       });
-      const topCats = Object.entries(catCounts).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([c]) => c);
-
-      const followedClause = followedIds.length > 0 ? `(${followedIds.join(",")})` : "(0)";
+      const topCats = Object.entries(catCounts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([cat]) => cat);
 
       const [followedRes, discoveryRes, randomRes] = await Promise.all([
-        supabase.from("quotes").select("*, writers(id, name, category)").in("writer_id", followedIds).not("id", "in", excludeClause).limit(50),
+        supabase
+          .from("quotes")
+          .select("*, writers(id, name, category)")
+          .in("writer_id", followedIds)
+          .not("id", "in", seenArr.length > 0 ? `(${seenArr.join(",")})` : "(0)")
+          .limit(50),
+
         topCats.length > 0
-          ? supabase.from("quotes").select("*, writers(id, name, category)").overlaps("category", topCats).not("writer_id", "in", followedClause).not("id", "in", excludeClause).limit(50)
+          ? supabase
+              .from("quotes")
+              .select("*, writers(id, name, category)")
+              .overlaps("category", topCats)
+              .not("writer_id", "in", `(${followedIds.join(",")})`)
+              .not("id", "in", seenArr.length > 0 ? `(${seenArr.join(",")})` : "(0)")
+              .limit(50)
           : { data: [] },
-        supabase.from("quotes").select("*, writers(id, name, category)").not("id", "in", excludeClause).limit(50),
+
+        supabase
+          .from("quotes")
+          .select("*, writers(id, name, category)")
+          .not("id", "in", seenArr.length > 0 ? `(${seenArr.join(",")})` : "(0)")
+          .limit(50),
       ]);
 
       const pick = (arr, n) => (arr || []).sort(() => Math.random() - 0.5).slice(0, n);
-      const seenSet = new Set();
-      const merged = [
-        ...pick(followedRes.data, 5),
-        ...pick(discoveryRes.data, 4),
-        ...pick(randomRes.data, 1),
-      ].filter(q => { if (seenSet.has(q.id)) return false; seenSet.add(q.id); return true; });
+
+      const followedPick  = pick(followedRes.data, 5);
+      const discoveryPick = pick(discoveryRes.data, 4);
+      const randomPick    = pick(randomRes.data, 1);
+
+      const seen = new Set();
+      const merged = [...followedPick, ...discoveryPick, ...randomPick].filter(q => {
+        if (seen.has(q.id)) return false;
+        seen.add(q.id);
+        return true;
+      });
 
       batch = merged.sort(() => Math.random() - 0.5);
 
       if (batch.length < 5) {
-        const { data: topUp } = await supabase.from("quotes").select("*, writers(id, name, category)").not("id", "in", excludeClause).limit(20);
+        const { data: topUp } = await supabase
+          .from("quotes")
+          .select("*, writers(id, name, category)")
+          .not("id", "in", seenArr.length > 0 ? `(${seenArr.join(",")})` : "(0)")
+          .limit(20);
         const extra = pick(topUp, 10 - batch.length);
-        batch = [...batch, ...extra].filter((q, i, arr) => arr.findIndex(x => x.id === q.id) === i);
+        batch = [...batch, ...extra].filter((q, i, arr) =>
+          arr.findIndex(x => x.id === q.id) === i
+        );
       }
     }
 
     return batch;
   }
 
+  // ── Load / refresh feed ────────────────────────────────────────────────────
   async function loadFeed(isInitial = false) {
     if (isInitial) setLoading(true);
     else setRefreshing(true);
 
-    const freshSeenIds = isInitial ? seenIds : new Set();
+    const newSeenIds = isInitial ? seenIds : new Set();
     if (!isInitial) setSeenIds(new Set());
 
-    const { data: follows } = await supabase.from("follows").select("writer_id").eq("user_id", userId);
+    const { data: follows } = await supabase
+      .from("follows")
+      .select("writer_id")
+      .eq("user_id", userId);
     setFollowCount(follows?.length || 0);
 
-    const batch = await buildBatch(freshSeenIds);
+    const batch = await buildBatch(newSeenIds);
 
     if (batch.length > 0) {
-      await supabase.from("seen_quotes").upsert(batch.map(q => ({ user_id: userId, quote_id: q.id })), { onConflict: "user_id,quote_id" });
-      setSeenIds(new Set([...freshSeenIds, ...batch.map(q => q.id)]));
+      const seenRows = batch.map(q => ({ user_id: userId, quote_id: q.id }));
+      await supabase.from("seen_quotes").upsert(seenRows, { onConflict: "user_id,quote_id" });
+      setSeenIds(new Set([...newSeenIds, ...batch.map(q => q.id)]));
     }
 
     const quoteIds = batch.map(q => q.id);
     const [{ data: myLikes }, { data: allLikes }, { data: allComments }] = await Promise.all([
       supabase.from("likes").select("quote_id").eq("user_id", userId),
-      quoteIds.length > 0 ? supabase.from("likes").select("quote_id").in("quote_id", quoteIds) : { data: [] },
-      quoteIds.length > 0 ? supabase.from("comments").select("quote_id").in("quote_id", quoteIds) : { data: [] },
+      supabase.from("likes").select("quote_id").in("quote_id", quoteIds),
+      supabase.from("comments").select("quote_id").in("quote_id", quoteIds),
     ]);
 
     setLikes(new Set(myLikes?.map(l => l.quote_id) || []));
-    const lc = {}; allLikes?.forEach(l => { lc[l.quote_id] = (lc[l.quote_id] || 0) + 1; }); setLikeCounts(lc);
-    const cc = {}; allComments?.forEach(c => { cc[c.quote_id] = (cc[c.quote_id] || 0) + 1; }); setCommentCounts(cc);
+
+    const lc = {};
+    allLikes?.forEach(l => { lc[l.quote_id] = (lc[l.quote_id] || 0) + 1; });
+    setLikeCounts(lc);
+
+    const cc = {};
+    allComments?.forEach(c => { cc[c.quote_id] = (cc[c.quote_id] || 0) + 1; });
+    setCommentCounts(cc);
 
     setQuotes(batch);
-    setLoading(false);
-    setRefreshing(false);
+    if (isInitial) setLoading(false);
+    else setRefreshing(false);
 
-    if (!isInitial && scrollRef?.current) scrollRef.current.scrollTop = 0;
+    if (!isInitial && scrollRef?.current) {
+      scrollRef.current.scrollTop = 0;
+    }
   }
 
+  // ── Load more when near end ────────────────────────────────────────────────
   async function loadMore() {
     if (loadingMore) return;
     setLoadingMore(true);
+
     const batch = await buildBatch(seenIds);
     if (batch.length === 0) { setLoadingMore(false); return; }
 
-    await supabase.from("seen_quotes").upsert(batch.map(q => ({ user_id: userId, quote_id: q.id })), { onConflict: "user_id,quote_id" });
-    setSeenIds(prev => new Set([...prev, ...batch.map(q => q.id)]));
-
     const quoteIds = batch.map(q => q.id);
+    const seenRows = batch.map(q => ({ user_id: userId, quote_id: q.id }));
+    await supabase.from("seen_quotes").upsert(seenRows, { onConflict: "user_id,quote_id" });
+    setSeenIds(prev => new Set([...prev, ...quoteIds]));
+
     const [{ data: allLikes }, { data: allComments }] = await Promise.all([
       supabase.from("likes").select("quote_id").in("quote_id", quoteIds),
       supabase.from("comments").select("quote_id").in("quote_id", quoteIds),
     ]);
 
-    setLikeCounts(prev => { const lc = { ...prev }; allLikes?.forEach(l => { lc[l.quote_id] = (lc[l.quote_id] || 0) + 1; }); return lc; });
-    setCommentCounts(prev => { const cc = { ...prev }; allComments?.forEach(c => { cc[c.quote_id] = (cc[c.quote_id] || 0) + 1; }); return cc; });
+    setLikeCounts(prev => {
+      const lc = { ...prev };
+      allLikes?.forEach(l => { lc[l.quote_id] = (lc[l.quote_id] || 0) + 1; });
+      return lc;
+    });
+
+    setCommentCounts(prev => {
+      const cc = { ...prev };
+      allComments?.forEach(c => { cc[c.quote_id] = (cc[c.quote_id] || 0) + 1; });
+      return cc;
+    });
+
     setQuotes(prev => [...prev, ...batch]);
     setLoadingMore(false);
   }
 
+  // ── Scroll handler: preload when 2 from end ────────────────────────────────
   function handleScroll(e) {
     const el = e.target;
     const fromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    if (fromBottom < el.clientHeight * 2 && !loadingMore) loadMore();
+    if (fromBottom < el.clientHeight * 2 && !loadingMore) {
+      loadMore();
+    }
   }
 
+  // ── Pull to refresh ────────────────────────────────────────────────────────
   function handleTouchStart(e) {
     touchStartY.current = e.touches[0].clientY;
   }
 
   function handleTouchMove(e) {
-    if (!scrollRef?.current) return;
-    const atTop = scrollRef.current.scrollTop === 0;
-    if (!atTop) return;
-    const delta = e.touches[0].clientY - touchStartY.current;
-    if (delta > 0) {
+    if (!scrollRef?.current || scrollRef.current.scrollTop !== 0) return;
+    const diff = e.touches[0].clientY - touchStartY.current;
+    if (diff > 0) {
       setIsPulling(true);
-      setPullY(Math.min(delta, 100));
+      setPullProgress(Math.min(diff / 60, 1));
     }
   }
 
   function handleTouchEnd() {
-    if (pullY >= PULL_THRESHOLD && !refreshing) {
-      loadFeed(false);
-    }
+    const triggered = isPulling && pullProgress >= 1;
     setIsPulling(false);
-    setPullY(0);
+    setPullProgress(0);
+    if (triggered) loadFeed(false);
   }
 
+  // ── Like toggle ────────────────────────────────────────────────────────────
   async function toggleLike(quoteId) {
     const isLiked = likes.has(quoteId);
     if (isLiked) {
@@ -326,14 +387,26 @@ function FeedPage({ userId, onWriterClick, onCommentClick, scrollRef }) {
 
   if (loading) return <div style={s.loading}>Loading…</div>;
 
-  // Pull-to-refresh spinner calculations
-  const pullProgress = Math.min(pullY / PULL_THRESHOLD, 1);
-  const spinnerOpacity = pullProgress;
-  const spinnerScale = 0.6 + pullProgress * 0.55; // 0.6 → 1.15 at threshold
-  const isTriggered = pullY >= PULL_THRESHOLD;
-
   return (
-    <div style={{ background: "#faf8f5" }}>
+    <div style={{ background: "#faf8f5", position: "relative" }}>
+      {/* Pull-to-refresh spinner */}
+      {(isPulling || refreshing) && (
+        <div style={{
+          position: "absolute", top: 72, left: "50%", transform: "translateX(-50%)", zIndex: 15,
+          opacity: refreshing ? 1 : pullProgress,
+          transition: isPulling ? "none" : "opacity 0.2s",
+        }}>
+          <div style={{
+            width: 28, height: 28, borderRadius: "50%",
+            border: "2.5px solid #2d2d2d", borderTopColor: "transparent",
+            transform: `scale(${refreshing ? 1 : pullProgress >= 1 ? 1.15 : 0.8 + pullProgress * 0.2})`,
+            animation: refreshing ? "spin 0.8s linear infinite" : "none",
+            transition: isPulling ? "none" : "transform 0.2s",
+          }} />
+        </div>
+      )}
+
+      {/* Header */}
       <div style={s.feedHeader}>
         <h1 style={s.feedLogo}>Axiom</h1>
         {followCount < 10 && (
@@ -345,29 +418,7 @@ function FeedPage({ userId, onWriterClick, onCommentClick, scrollRef }) {
         )}
       </div>
 
-      {/* Pull-to-refresh spinner */}
-      <div style={{
-        position: "fixed",
-        top: 70,
-        left: "50%",
-        transform: "translateX(-50%)",
-        zIndex: 30,
-        opacity: (isPulling || refreshing) ? (refreshing ? 1 : spinnerOpacity) : 0,
-        transition: isPulling ? "none" : "opacity 0.3s",
-        pointerEvents: "none",
-      }}>
-        <div style={{
-          width: 28,
-          height: 28,
-          borderRadius: "50%",
-          border: "2.5px solid #ede9e3",
-          borderTopColor: "#2d2d2d",
-          transform: `scale(${refreshing ? 1 : isTriggered ? 1.15 : spinnerScale})`,
-          transition: isTriggered && !refreshing ? "transform 0.15s" : "none",
-          animation: refreshing ? "spinFeed 0.8s linear infinite" : "none",
-        }} />
-      </div>
-
+      {/* Full screen snap scroll feed */}
       <div
         ref={scrollRef}
         style={s.snapContainer}
@@ -378,7 +429,9 @@ function FeedPage({ userId, onWriterClick, onCommentClick, scrollRef }) {
       >
         {quotes.length === 0 && (
           <div style={{ ...s.slide, alignItems: "center", justifyContent: "center" }}>
-            <p style={{ color: "#c0bab2", fontSize: 15, textAlign: "center", lineHeight: 1.8 }}>No quotes yet.<br />Follow some writers to get started.</p>
+            <p style={{ color: "#c0bab2", fontSize: 15, textAlign: "center", lineHeight: 1.8 }}>
+              No quotes yet.<br />Follow some writers to get started.
+            </p>
           </div>
         )}
         {quotes.map((q, i) => (
@@ -395,7 +448,7 @@ function FeedPage({ userId, onWriterClick, onCommentClick, scrollRef }) {
         ))}
         {loadingMore && (
           <div style={{ ...s.slide, alignItems: "center", justifyContent: "center" }}>
-            <div style={{ width: 28, height: 28, borderRadius: "50%", border: "2.5px solid #ede9e3", borderTopColor: "#2d2d2d", animation: "spinFeed 0.8s linear infinite" }} />
+            <p style={{ color: "#c0bab2", fontSize: 15 }}>Loading more…</p>
           </div>
         )}
       </div>
@@ -472,9 +525,13 @@ function WriterPage({ writer, userId, onBack, onCommentClick }) {
     setLikes(new Set(l?.map(x => x.quote_id) || []));
     const writerQuoteIds = q?.map(x => x.id) || [];
     const { data: all } = await supabase.from("likes").select("quote_id").in("quote_id", writerQuoteIds);
-    const lc = {}; all?.forEach(x => { lc[x.quote_id] = (lc[x.quote_id] || 0) + 1; }); setLikeCounts(lc);
+    const lc = {};
+    all?.forEach(x => { lc[x.quote_id] = (lc[x.quote_id] || 0) + 1; });
+    setLikeCounts(lc);
     const { data: allC } = await supabase.from("comments").select("quote_id").in("quote_id", writerQuoteIds);
-    const cc = {}; allC?.forEach(x => { cc[x.quote_id] = (cc[x.quote_id] || 0) + 1; }); setCommentCounts(cc);
+    const cc = {};
+    allC?.forEach(x => { cc[x.quote_id] = (cc[x.quote_id] || 0) + 1; });
+    setCommentCounts(cc);
   }
 
   async function toggleFollow() {
@@ -701,11 +758,14 @@ function ProfilePage({ userId, onSignOut, onWriterClick }) {
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const s = {
+  // Layout
   page: { paddingBottom: 80, minHeight: "100vh", background: "#faf8f5" },
   pageHeader: { position: "sticky", top: 0, background: "#faf8f5", zIndex: 10, padding: "20px 24px 0", borderBottom: "1px solid #ede9e3" },
   feed: { padding: "16px 24px" },
   loading: { display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", color: "#2d2d2d", fontFamily: "'DM Serif Display', serif", fontSize: 20, background: "#faf8f5" },
   empty: { color: "#c0bab2", textAlign: "center", padding: "48px 0", fontSize: 14, lineHeight: 1.8 },
+
+  // Auth
   authWrap: { display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", padding: 24, background: "#faf8f5" },
   authBox: { width: "100%", maxWidth: 360, display: "flex", flexDirection: "column", gap: 12 },
   authLogo: { fontFamily: "'DM Serif Display', serif", fontSize: 58, color: "#2d2d2d", textAlign: "center" },
@@ -715,11 +775,31 @@ const s = {
   input: { background: "#fff", border: "1.5px solid #ede9e3", borderRadius: 10, padding: "14px 16px", color: "#2d2d2d", fontSize: 15, fontFamily: "'DM Sans', sans-serif", width: "100%" },
   error: { color: "#c05050", fontSize: 13 },
   submitBtn: { background: "#2d2d2d", border: "none", color: "#faf8f5", borderRadius: 10, padding: 14, fontSize: 15, fontWeight: 500, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", marginTop: 4 },
+
+  // Full screen feed
   feedHeader: { position: "fixed", top: 0, left: 0, right: 0, zIndex: 20, padding: "16px 24px 12px", background: "rgba(250,248,245,0.92)", backdropFilter: "blur(8px)", borderBottom: "1px solid #ede9e3" },
   feedLogo: { fontFamily: "'DM Serif Display', serif", fontSize: 26, color: "#2d2d2d" },
   hint: { fontSize: 11, color: "#c0bab2", marginTop: 2 },
-  snapContainer: { height: "calc(100vh - 134px)", marginTop: 64, overflowY: "scroll", scrollSnapType: "y mandatory", WebkitOverflowScrolling: "touch" },
-  slide: { height: "calc(100vh - 134px)", flexShrink: 0, scrollSnapAlign: "start", display: "flex", flexDirection: "column", justifyContent: "center", position: "relative", padding: "40px 32px", borderBottom: "1px solid #ede9e3" },
+  snapContainer: {
+    height: "calc(100vh - 134px)",
+    marginTop: 64,
+    overflowY: "scroll",
+    scrollSnapType: "y mandatory",
+    WebkitOverflowScrolling: "touch",
+  },
+
+  // Full screen slide
+  slide: {
+    height: "calc(100vh - 134px)",
+    flexShrink: 0,
+    scrollSnapAlign: "start",
+    display: "flex",
+    flexDirection: "column",
+    justifyContent: "center",
+    position: "relative",
+    padding: "40px 32px",
+    borderBottom: "1px solid #ede9e3",
+  },
   categoryPill: { position: "absolute", top: 24, left: 32, background: "#f0ece6", color: "#a09890", fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", padding: "5px 12px", borderRadius: 20 },
   slideContent: { flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", paddingRight: 56 },
   slideQuote: { fontFamily: "'DM Serif Display', serif", fontSize: 26, color: "#2d2d2d", lineHeight: 1.6, fontStyle: "italic", marginBottom: 24 },
@@ -730,9 +810,13 @@ const s = {
   actionBtn: { background: "transparent", border: "none", cursor: "pointer", padding: 4, display: "flex", alignItems: "center", justifyContent: "center", transition: "transform 0.2s" },
   actionCount: { fontSize: 11, color: "#a09890", fontFamily: "'DM Sans', sans-serif" },
   scrollHint: { position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)", color: "#d8d2ca", fontSize: 18, animation: "bounce 1.5s ease-in-out infinite" },
+
+  // Quote list card (for writer page and profile)
   quoteListCard: { background: "#fff", border: "1px solid #ede9e3", borderRadius: 14, padding: "20px 18px", marginBottom: 10 },
   quoteListText: { fontFamily: "'DM Serif Display', serif", fontSize: 17, color: "#2d2d2d", lineHeight: 1.65, fontStyle: "italic", marginBottom: 10 },
   iconBtn: { background: "transparent", border: "none", fontSize: 15, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" },
+
+  // Writers
   writerCard: { display: "flex", alignItems: "center", gap: 14, background: "#fff", border: "1px solid #ede9e3", borderRadius: 14, padding: "16px 18px", marginBottom: 10, cursor: "pointer" },
   avatar: { width: 46, height: 46, borderRadius: "50%", background: "#f0ece6", border: "1px solid #ede9e3", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'DM Serif Display', serif", fontSize: 22, color: "#2d2d2d", flexShrink: 0 },
   avatarLg: { width: 58, height: 58, borderRadius: "50%", background: "#f0ece6", border: "1px solid #ede9e3", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'DM Serif Display', serif", fontSize: 28, color: "#2d2d2d", flexShrink: 0 },
@@ -744,12 +828,18 @@ const s = {
   pill: { borderRadius: 20, padding: "7px 18px", fontSize: 13, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontWeight: 500, whiteSpace: "nowrap", flexShrink: 0 },
   signOutBtn: { background: "transparent", border: "1px solid #ede9e3", color: "#a09890", borderRadius: 20, padding: "7px 16px", fontSize: 13, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", marginLeft: "auto", flexShrink: 0 },
   backBtn: { background: "transparent", border: "none", color: "#2d2d2d", fontSize: 14, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", marginBottom: 16, padding: 0 },
+
+  // Nav
   nav: { position: "fixed", bottom: 0, left: 0, right: 0, background: "rgba(250,248,245,0.95)", backdropFilter: "blur(8px)", borderTop: "1px solid #ede9e3", display: "flex", padding: "8px 0 16px", zIndex: 100 },
   navBtn: { flex: 1, background: "transparent", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, fontFamily: "'DM Sans', sans-serif", transition: "color 0.15s" },
+
+  // Other
   pageTitle: { fontFamily: "'DM Serif Display', serif", fontSize: 30, color: "#2d2d2d", marginBottom: 14 },
   searchInput: { width: "100%", background: "#fff", border: "1.5px solid #ede9e3", borderRadius: 10, padding: "12px 16px", color: "#2d2d2d", fontSize: 15, fontFamily: "'DM Sans', sans-serif", marginBottom: 16 },
   tabRow: { display: "flex" },
   tabBtn: { flex: 1, background: "transparent", border: "none", borderBottom: "2px solid transparent", padding: "12px 0", fontSize: 14, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", transition: "all 0.15s" },
+
+  // Comments
   commentInputWrap: { position: "fixed", bottom: 0, left: 0, right: 0, background: "rgba(250,248,245,0.97)", borderTop: "1px solid #ede9e3", padding: "10px 16px 24px", zIndex: 100 },
   commentInput: { flex: 1, background: "#fff", border: "1.5px solid #ede9e3", borderRadius: 22, padding: "11px 18px", color: "#2d2d2d", fontSize: 14, fontFamily: "'DM Sans', sans-serif" },
   sendBtn: { background: "#2d2d2d", border: "none", color: "#faf8f5", width: 40, height: 40, borderRadius: "50%", fontSize: 18, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "opacity 0.15s" },
@@ -780,7 +870,6 @@ export default function App() {
   const openWriter = (writer) => { setSelectedWriter(writer); setPage("writer"); };
   const openComments = (quote) => { setSelectedQuote(quote); setPrevPage(page); setPage("comments"); };
   const signOut = async () => { await supabase.auth.signOut(); setUser(null); setPage("feed"); };
-  const handleFeedTap = () => { feedScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" }); };
 
   if (loading) return <div style={s.loading}>Loading…</div>;
   if (!user) return <AuthPage onAuth={setUser} />;
@@ -799,7 +888,7 @@ export default function App() {
           0%, 100% { transform: translateX(-50%) translateY(0); }
           50% { transform: translateX(-50%) translateY(6px); }
         }
-        @keyframes spinFeed {
+        @keyframes spin {
           to { transform: rotate(360deg); }
         }
       `}</style>
@@ -810,7 +899,7 @@ export default function App() {
       {page === "writer" && selectedWriter && <WriterPage writer={selectedWriter} userId={user.id} onBack={() => setPage("feed")} onCommentClick={openComments} />}
       {page === "comments" && selectedQuote && <CommentsPage quote={selectedQuote} userId={user.id} onBack={() => setPage(prevPage)} />}
 
-      {showNav && <BottomNav page={page} setPage={setPage} onFeedTap={handleFeedTap} />}
+      {showNav && <BottomNav page={page} setPage={setPage} onFeedTap={() => feedScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" })} />}
     </div>
   );
 }
