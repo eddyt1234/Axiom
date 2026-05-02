@@ -3,11 +3,23 @@ import { supabase } from "./supabase";
 
 // ─── Full Screen Quote Card ───────────────────────────────────────────────────
 
-function QuoteSlide({ quote, liked, likeCount, commentCount, onLike, onWriterClick, onCommentClick, isLast }) {
+function QuoteSlide({ quote, liked, likeCount, commentCount, onLike, onWriterClick, onCommentClick, isLast, onSeen }) {
   const [pressed, setPressed] = useState(false);
+  const slideRef = useRef(null);
+
+  useEffect(() => {
+    const el = slideRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) { onSeen?.(quote.id); observer.disconnect(); } },
+      { threshold: 0.8 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [quote.id]);
 
   return (
-    <div style={s.slide}>
+    <div ref={slideRef} style={s.slide}>
       {/* Category pill */}
       {quote.writers?.category && (
         <div style={s.categoryPill}>{quote.writers.category}</div>
@@ -254,8 +266,6 @@ const [isPulling, setIsPulling] = useState(false);
     const batch = await buildBatch(newSeenIds);
 
     if (batch.length > 0) {
-      const seenRows = batch.map(q => ({ user_id: userId, quote_id: q.id }));
-      await supabase.from("seen_quotes").upsert(seenRows, { onConflict: "user_id,quote_id" });
       setSeenIds(new Set([...newSeenIds, ...batch.map(q => q.id)]));
     }
 
@@ -349,7 +359,14 @@ const [isPulling, setIsPulling] = useState(false);
   setPullY(0);
   if (triggered) loadFeed(false);
 }
-
+async function handleSeen(quoteId) {
+  if (seenIds.has(quoteId)) return;
+  setSeenIds(prev => new Set([...prev, quoteId]));
+  await supabase.from("seen_quotes").upsert(
+    { user_id: userId, quote_id: quoteId },
+    { onConflict: "user_id,quote_id" }
+  );
+}
   // ── Like toggle ────────────────────────────────────────────────────────────
   async function toggleLike(quoteId) {
     const isLiked = likes.has(quoteId);
@@ -414,17 +431,18 @@ const [isPulling, setIsPulling] = useState(false);
           </div>
         )}
         {quotes.map((q, i) => (
-          <QuoteSlide
-            key={`${q.id}-${i}`}
-            quote={q}
-            liked={likes.has(q.id)}
-            likeCount={likeCounts[q.id] || 0}
-            commentCount={commentCounts[q.id] || 0}
-            onLike={toggleLike}
-            onWriterClick={onWriterClick}
-            onCommentClick={onCommentClick}
-          />
-        ))}
+  <QuoteSlide
+    key={`${q.id}-${i}`}
+    quote={q}
+    liked={likes.has(q.id)}
+    likeCount={likeCounts[q.id] || 0}
+    commentCount={commentCounts[q.id] || 0}
+    onLike={toggleLike}
+    onWriterClick={onWriterClick}
+    onCommentClick={onCommentClick}
+    onSeen={handleSeen}
+  />
+))}
         {loadingMore && (
           <div style={{ ...s.slide, alignItems: "center", justifyContent: "center" }}>
             <p style={{ color: "#c0bab2", fontSize: 15 }}>Loading more…</p>
