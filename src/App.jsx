@@ -164,8 +164,9 @@ function FeedPage({ userId, onWriterClick, onCommentClick, scrollRef }) {
   const [followCount, setFollowCount] = useState(0);
   const [seenIds, setSeenIds] = useState(new Set());
   const [loadingMore, setLoadingMore] = useState(false);
-  const [pullProgress, setPullProgress] = useState(0);
-  const [isPulling, setIsPulling] = useState(false);
+ const [pullProgress, setPullProgress] = useState(0);
+const [pullY, setPullY] = useState(0);
+const [isPulling, setIsPulling] = useState(false);
   const touchStartY = useRef(null);
 
   useEffect(() => { loadFeed(true); }, [userId]);
@@ -355,21 +356,23 @@ function FeedPage({ userId, onWriterClick, onCommentClick, scrollRef }) {
     touchStartY.current = e.touches[0].clientY;
   }
 
-  function handleTouchMove(e) {
-    if (!scrollRef?.current || scrollRef.current.scrollTop !== 0) return;
-    const diff = e.touches[0].clientY - touchStartY.current;
-    if (diff > 0) {
-      setIsPulling(true);
-      setPullProgress(Math.min(diff / 60, 1));
-    }
+ function handleTouchMove(e) {
+  if (!scrollRef?.current || scrollRef.current.scrollTop !== 0) return;
+  const diff = e.touches[0].clientY - touchStartY.current;
+  if (diff > 0) {
+    setIsPulling(true);
+    setPullY(Math.min(diff, 100));
+    setPullProgress(Math.min(diff / 60, 1));
   }
+}
 
   function handleTouchEnd() {
-    const triggered = isPulling && pullProgress >= 1;
-    setIsPulling(false);
-    setPullProgress(0);
-    if (triggered) loadFeed(false);
-  }
+  const triggered = isPulling && pullProgress >= 1;
+  setIsPulling(false);
+  setPullProgress(0);
+  setPullY(0);
+  if (triggered) loadFeed(false);
+}
 
   // ── Like toggle ────────────────────────────────────────────────────────────
   async function toggleLike(quoteId) {
