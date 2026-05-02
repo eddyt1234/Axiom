@@ -361,7 +361,6 @@ const [isPulling, setIsPulling] = useState(false);
   const diff = e.touches[0].clientY - touchStartY.current;
   if (diff > 0) {
     setIsPulling(true);
-    setPullY(Math.min(diff, 100));
     setPullProgress(Math.min(diff / 60, 1));
   }
 }
