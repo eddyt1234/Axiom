@@ -397,11 +397,12 @@ function FeedPage({ userId, onWriterClick, onCommentClick, scrollRef }) {
           transition: isPulling ? "none" : "opacity 0.2s",
         }}>
           <div style={{
-            width: 28, height: 28, borderRadius: "50%",
-            border: "2.5px solid #2d2d2d", borderTopColor: "transparent",
-            animation: refreshing ? "spinFeed 0.8s linear infinite" : "none",
-            transition: isPulling ? "none" : "transform 0.2s",
-          }} />
+  width: 28, height: 28, borderRadius: "50%",
+  border: "2.5px solid #2d2d2d", borderTopColor: "transparent",
+  transform: `rotate(${refreshing ? 0 : pullY * 3}deg)`,
+  animation: refreshing ? "spinFeed 0.4s linear infinite" : "none",
+  transition: "none",
+}} />
         </div>
       )}
 
